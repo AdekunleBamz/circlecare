@@ -498,7 +498,7 @@ describe("CircleCare Circle Treasury - Clarity 4 Tests", () => {
       );
 
       // wallet1 is owed 200 STX (paid 300, owes 100)
-      expect(result).toBeOk(Cl.int(200000000));
+      expect(result).toBeOk(Cl.uint(200000000));
     });
 
     it("handles multiple expenses correctly", () => {
@@ -528,15 +528,23 @@ describe("CircleCare Circle Treasury - Clarity 4 Tests", () => {
         wallet2
       );
 
-      const { result } = simnet.callReadOnlyFn(
+      // Check wallet2 owes wallet1 100 STX from first expense
+      const result1 = simnet.callReadOnlyFn(
         "circle-treasury",
         "get-balance",
         [Cl.uint(1), Cl.principal(wallet2), Cl.principal(wallet1)],
         wallet1
       );
+      expect(result1.result).toBeUint(100000000);
 
-      // wallet2 owes wallet1: 50 STX (100 from first - 50 from second)
-      expect(result).toBeUint(50000000);
+      // Check wallet1 owes wallet2 50 STX from second expense
+      const result2 = simnet.callReadOnlyFn(
+        "circle-treasury",
+        "get-balance",
+        [Cl.uint(1), Cl.principal(wallet1), Cl.principal(wallet2)],
+        wallet1
+      );
+      expect(result2.result).toBeUint(50000000);
     });
   });
 
