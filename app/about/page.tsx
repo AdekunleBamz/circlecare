@@ -1,4 +1,6 @@
 import { Metadata } from 'next';
+import { Navigation } from '../../components/Navigation';
+import { Footer } from '../../components/Footer';
 
 export const metadata: Metadata = {
   title: 'About CircleCare - Care-Centered Expense Sharing',
@@ -8,7 +10,9 @@ export const metadata: Metadata = {
 
 export default function AboutPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <>
+      <Navigation />
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="container mx-auto px-4 py-20">
         <div className="max-w-4xl mx-auto">
           {/* Hero Section */}
@@ -154,6 +158,8 @@ export default function AboutPage() {
           </section>
         </div>
       </div>
-    </div>
+      </div>
+      <Footer />
+    </>
   );
 }

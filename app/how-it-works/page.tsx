@@ -1,4 +1,6 @@
 import { Metadata } from 'next';
+import { Navigation } from '../../components/Navigation';
+import { Footer } from '../../components/Footer';
 
 export const metadata: Metadata = {
   title: 'How CircleCare Works - Step-by-Step Guide',
@@ -8,7 +10,9 @@ export const metadata: Metadata = {
 
 export default function HowItWorksPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
+    <>
+      <Navigation />
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100">
       <div className="container mx-auto px-4 py-20">
         <div className="max-w-6xl mx-auto">
           {/* Hero Section */}
@@ -256,6 +260,8 @@ export default function HowItWorksPage() {
           </section>
         </div>
       </div>
-    </div>
+      </div>
+      <Footer />
+    </>
   );
 }
