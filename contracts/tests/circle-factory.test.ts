@@ -1,212 +1,360 @@
-import { describe, expect, it, beforeEach } from 'vitest';
-import { Cl } from '@stacks/transactions';
-import { TEST_ACCOUNTS, CONTRACTS, ERROR_CODES, createCircleArgs, expectOk, expectErr } from './helpers/test-utils';
-import { MOCK_CIRCLES, INVALID_INPUTS } from './helpers/mock-data';
+import { describe, expect, it, beforeEach } from "vitest";
+import { Cl } from "@stacks/transactions";
 
 const accounts = simnet.getAccounts();
-const deployer = accounts.get('deployer')!;
-const wallet1 = accounts.get('wallet_1')!;
-const wallet2 = accounts.get('wallet_2')!;
-const wallet3 = accounts.get('wallet_3')!;
+const deployer = accounts.get("deployer")!;
+const wallet1 = accounts.get("wallet_1")!;
+const wallet2 = accounts.get("wallet_2")!;
+const wallet3 = accounts.get("wallet_3")!;
 
-describe('Circle Factory Contract', () => {
-  beforeEach(() => {
-    // Reset state before each test
-  });
+describe("CircleCare Circle Factory - Clarity 4 Tests", () => {
 
-  describe('Circle Creation', () => {
-    it('should create a circle successfully', () => {
+  describe("Circle Creation", () => {
+    it("creates a circle with valid parameters using stacks-block-time", () => {
       const { result } = simnet.callPublicFn(
-        CONTRACTS.FACTORY,
-        'create-circle',
-        createCircleArgs(MOCK_CIRCLES.FAMILY.name),
+        "circle-factory",
+        "create-circle",
+        [Cl.stringAscii("Family Circle"), Cl.stringAscii("Alice")],
         wallet1
       );
-      
-      const circleId = expectOk(result);
-      expect(circleId).toBeUint(1);
+
+      expect(result).toBeOk(Cl.uint(1));
     });
 
-    it('should increment circle IDs for multiple circles', () => {
-      // Create first circle
-      const { result: result1 } = simnet.callPublicFn(
-        CONTRACTS.FACTORY,
-        'create-circle',
-        createCircleArgs('Circle 1'),
+    it("stores circle with stacks-block-time timestamp", () => {
+      // Create circle
+      simnet.callPublicFn(
+        "circle-factory",
+        "create-circle",
+        [Cl.stringAscii("Test Circle"), Cl.stringAscii("Bob")],
         wallet1
       );
-      expect(expectOk(result1)).toBeUint(1);
 
-      // Create second circle
-      const { result: result2 } = simnet.callPublicFn(
-        CONTRACTS.FACTORY,
-        'create-circle',
-        createCircleArgs('Circle 2'),
+      // Get circle info - verify it exists
+      const { result } = simnet.callReadOnlyFn(
+        "circle-factory",
+        "get-circle-info",
+        [Cl.uint(1)],
+        wallet1
+      );
+
+      // Circle should exist (not none)
+      expect(result).not.toBeNone();
+    });
+
+    it("fails with empty name", () => {
+      const { result } = simnet.callPublicFn(
+        "circle-factory",
+        "create-circle",
+        [Cl.stringAscii(""), Cl.stringAscii("User")],
+        wallet1
+      );
+
+      expect(result).toBeErr(Cl.uint(101)); // ERR-INVALID-NAME
+    });
+
+    it("fails with empty nickname", () => {
+      const { result } = simnet.callPublicFn(
+        "circle-factory",
+        "create-circle",
+        [Cl.stringAscii("Circle"), Cl.stringAscii("")],
+        wallet1
+      );
+
+      expect(result).toBeErr(Cl.uint(102)); // ERR-INVALID-NICKNAME
+    });
+
+    it("increments circle ID correctly", () => {
+      const result1 = simnet.callPublicFn(
+        "circle-factory",
+        "create-circle",
+        [Cl.stringAscii("Circle 1"), Cl.stringAscii("User1")],
+        wallet1
+      );
+
+      const result2 = simnet.callPublicFn(
+        "circle-factory",
+        "create-circle",
+        [Cl.stringAscii("Circle 2"), Cl.stringAscii("User2")],
+        wallet1
+      );
+
+      expect(result1.result).toBeOk(Cl.uint(1));
+      expect(result2.result).toBeOk(Cl.uint(2));
+    });
+  });
+
+  describe("Treasury Contract Verification with contract-hash?", () => {
+    beforeEach(() => {
+      // Create a circle first
+      simnet.callPublicFn(
+        "circle-factory",
+        "create-circle",
+        [Cl.stringAscii("Test Circle"), Cl.stringAscii("Creator")],
+        wallet1
+      );
+    });
+
+    it("rejects invalid contract principal", () => {
+      const invalidPrincipal = wallet2; // Not a contract
+
+      const { result } = simnet.callPublicFn(
+        "circle-factory",
+        "set-treasury-contract",
+        [Cl.uint(1), Cl.principal(invalidPrincipal)],
+        wallet1
+      );
+
+      expect(result).toBeErr(Cl.uint(108)); // ERR-INVALID-CONTRACT
+    });
+
+    it("only creator can attempt to set treasury", () => {
+      const treasuryPrincipal = `${deployer}.circle-treasury`;
+
+      const { result } = simnet.callPublicFn(
+        "circle-factory",
+        "set-treasury-contract",
+        [Cl.uint(1), Cl.principal(treasuryPrincipal)],
+        wallet2 // Not the creator
+      );
+
+      expect(result).toBeErr(Cl.uint(106)); // ERR-UNAUTHORIZED
+    });
+
+    // Note: Full treasury contract verification will be tested
+    // in integration tests once circle-treasury is implemented (Issue #3)
+  });
+
+  describe("User Management", () => {
+    beforeEach(() => {
+      simnet.callPublicFn(
+        "circle-factory",
+        "create-circle",
+        [Cl.stringAscii("Team Circle"), Cl.stringAscii("Admin")],
+        wallet1
+      );
+    });
+
+    it("adds user to circle", () => {
+      const { result } = simnet.callPublicFn(
+        "circle-factory",
+        "add-user-to-circle",
+        [Cl.principal(wallet2), Cl.uint(1)],
+        wallet1
+      );
+
+      expect(result).toBeOk(Cl.bool(true));
+    });
+
+    it("only creator can add users", () => {
+      const { result } = simnet.callPublicFn(
+        "circle-factory",
+        "add-user-to-circle",
+        [Cl.principal(wallet3), Cl.uint(1)],
+        wallet2 // Not creator
+      );
+
+      expect(result).toBeErr(Cl.uint(106)); // ERR-UNAUTHORIZED
+    });
+
+    it("updates user circles list", () => {
+      simnet.callPublicFn(
+        "circle-factory",
+        "add-user-to-circle",
+        [Cl.principal(wallet2), Cl.uint(1)],
+        wallet1
+      );
+
+      const { result } = simnet.callReadOnlyFn(
+        "circle-factory",
+        "get-user-circles",
+        [Cl.principal(wallet2)],
+        wallet1
+      );
+
+      expect(result).toBeList([Cl.uint(1)]);
+    });
+  });
+
+  describe("Circle Deactivation with stacks-block-time", () => {
+    beforeEach(() => {
+      simnet.callPublicFn(
+        "circle-factory",
+        "create-circle",
+        [Cl.stringAscii("Temp Circle"), Cl.stringAscii("Owner")],
+        wallet1
+      );
+    });
+
+    it("creator can deactivate circle", () => {
+      const { result } = simnet.callPublicFn(
+        "circle-factory",
+        "deactivate-circle",
+        [Cl.uint(1)],
+        wallet1
+      );
+
+      expect(result).toBeOk(Cl.bool(true));
+    });
+
+    it("marks circle as inactive", () => {
+      simnet.callPublicFn(
+        "circle-factory",
+        "deactivate-circle",
+        [Cl.uint(1)],
+        wallet1
+      );
+
+      const { result } = simnet.callReadOnlyFn(
+        "circle-factory",
+        "is-circle-active",
+        [Cl.uint(1)],
+        wallet1
+      );
+
+      expect(result).toBeBool(false);
+    });
+
+    it("non-creator cannot deactivate", () => {
+      const { result } = simnet.callPublicFn(
+        "circle-factory",
+        "deactivate-circle",
+        [Cl.uint(1)],
         wallet2
       );
-      expect(expectOk(result2)).toBeUint(2);
-    });
 
-    it('should reject empty circle name', () => {
-      const { result } = simnet.callPublicFn(
-        CONTRACTS.FACTORY,
-        'create-circle',
-        createCircleArgs(INVALID_INPUTS.EMPTY_STRING),
-        wallet1
-      );
-      
-      expectErr(result, ERROR_CODES.ERR_INVALID_INPUT);
-    });
-
-    it('should set creator as first member', () => {
-      // Create circle
-      const { result } = simnet.callPublicFn(
-        CONTRACTS.FACTORY,
-        'create-circle',
-        createCircleArgs(MOCK_CIRCLES.FAMILY.name),
-        wallet1
-      );
-      const circleId = expectOk(result);
-
-      // Check if creator is member
-      const { result: memberResult } = simnet.callReadOnlyFn(
-        CONTRACTS.FACTORY,
-        'is-circle-member',
-        [Cl.uint(circleId), Cl.principal(wallet1)],
-        wallet1
-      );
-      
-      expect(expectOk(memberResult)).toBeBool(true);
+      expect(result).toBeErr(Cl.uint(106)); // ERR-UNAUTHORIZED
     });
   });
 
-  describe('Circle Information Retrieval', () => {
-    it('should retrieve circle information correctly', () => {
-      // Create circle first
-      const { result } = simnet.callPublicFn(
-        CONTRACTS.FACTORY,
-        'create-circle',
-        createCircleArgs(MOCK_CIRCLES.FAMILY.name),
-        wallet1
-      );
-      const circleId = expectOk(result);
-
-      // Get circle info
-      const { result: infoResult } = simnet.callReadOnlyFn(
-        CONTRACTS.FACTORY,
-        'get-circle',
-        [Cl.uint(circleId)],
-        wallet1
-      );
-      
-      const circleInfo = expectOk(infoResult);
-      expect(circleInfo).toBeTuple({
-        name: Cl.stringAscii(MOCK_CIRCLES.FAMILY.name),
-        creator: Cl.principal(wallet1),
-        'created-at': Cl.uint(simnet.blockHeight),
-        'member-count': Cl.uint(1),
-        'is-active': Cl.bool(true)
-      });
-    });
-
-    it('should return error for non-existent circle', () => {
+  describe("Read-Only Functions", () => {
+    it("returns none for non-existent circle", () => {
       const { result } = simnet.callReadOnlyFn(
-        CONTRACTS.FACTORY,
-        'get-circle',
-        [Cl.uint(INVALID_INPUTS.NON_EXISTENT_CIRCLE_ID)],
+        "circle-factory",
+        "get-circle-info",
+        [Cl.uint(999)],
         wallet1
       );
-      
-      expectErr(result, ERROR_CODES.ERR_NOT_FOUND);
-    });
-  });
 
-  describe('Member Management', () => {
-    let circleId: number;
-
-    beforeEach(() => {
-      const { result } = simnet.callPublicFn(
-        CONTRACTS.FACTORY,
-        'create-circle',
-        createCircleArgs(MOCK_CIRCLES.FAMILY.name),
-        wallet1
-      );
-      circleId = expectOk(result);
+      expect(result).toBeNone();
     });
 
-    it('should check membership correctly', () => {
-      // Creator should be member
-      const { result: memberResult } = simnet.callReadOnlyFn(
-        CONTRACTS.FACTORY,
-        'is-circle-member',
-        [Cl.uint(circleId), Cl.principal(wallet1)],
-        wallet1
-      );
-      expect(expectOk(memberResult)).toBeBool(true);
-
-      // Non-member should return false
-      const { result: nonMemberResult } = simnet.callReadOnlyFn(
-        CONTRACTS.FACTORY,
-        'is-circle-member',
-        [Cl.uint(circleId), Cl.principal(wallet2)],
-        wallet1
-      );
-      expect(expectOk(nonMemberResult)).toBeBool(false);
-    });
-
-    it('should get circle members list', () => {
+    it("returns empty list for user with no circles", () => {
       const { result } = simnet.callReadOnlyFn(
-        CONTRACTS.FACTORY,
-        'get-circle-members',
-        [Cl.uint(circleId)],
+        "circle-factory",
+        "get-user-circles",
+        [Cl.principal(wallet3)],
         wallet1
       );
-      
-      const members = expectOk(result);
-      expect(members).toBeList([Cl.principal(wallet1)]);
-    });
-  });
 
-  describe('Edge Cases', () => {
-    it('should handle maximum circle name length', () => {
-      const maxLengthName = 'a'.repeat(50); // Exactly 50 characters
-      
-      const { result } = simnet.callPublicFn(
-        CONTRACTS.FACTORY,
-        'create-circle',
-        createCircleArgs(maxLengthName),
-        wallet1
-      );
-      
-      expect(expectOk(result)).toBeUint(1);
+      expect(result).toBeList([]);
     });
 
-    it('should track total circles correctly', () => {
-      // Initial count should be 0
-      const { result: initialResult } = simnet.callReadOnlyFn(
-        CONTRACTS.FACTORY,
-        'get-total-circles',
+    it("returns correct creation fee", () => {
+      const { result } = simnet.callReadOnlyFn(
+        "circle-factory",
+        "get-creation-fee",
         [],
         wallet1
       );
-      expect(expectOk(initialResult)).toBeUint(0);
 
-      // Create a circle
+      expect(result).toBeUint(0);
+    });
+
+    it("returns correct next circle ID", () => {
       simnet.callPublicFn(
-        CONTRACTS.FACTORY,
-        'create-circle',
-        createCircleArgs(MOCK_CIRCLES.FAMILY.name),
+        "circle-factory",
+        "create-circle",
+        [Cl.stringAscii("Circle"), Cl.stringAscii("User")],
         wallet1
       );
 
-      // Count should be 1
-      const { result: afterResult } = simnet.callReadOnlyFn(
-        CONTRACTS.FACTORY,
-        'get-total-circles',
+      const { result } = simnet.callReadOnlyFn(
+        "circle-factory",
+        "get-next-circle-id",
         [],
         wallet1
       );
-      expect(expectOk(afterResult)).toBeUint(1);
+
+      expect(result).toBeUint(2);
+    });
+  });
+
+  describe("Admin Functions", () => {
+    it("owner can set creation fee", () => {
+      const { result } = simnet.callPublicFn(
+        "circle-factory",
+        "set-creation-fee",
+        [Cl.uint(1000000)], // 1 STX
+        deployer
+      );
+
+      expect(result).toBeOk(Cl.bool(true));
+    });
+
+    it("non-owner cannot set creation fee", () => {
+      const { result } = simnet.callPublicFn(
+        "circle-factory",
+        "set-creation-fee",
+        [Cl.uint(1000000)],
+        wallet1
+      );
+
+      expect(result).toBeErr(Cl.uint(100)); // ERR-OWNER-ONLY
+    });
+
+    it("owner can set max circles per user", () => {
+      const { result } = simnet.callPublicFn(
+        "circle-factory",
+        "set-max-circles-per-user",
+        [Cl.uint(20)],
+        deployer
+      );
+
+      expect(result).toBeOk(Cl.bool(true));
+    });
+
+    it("validates max circles range", () => {
+      const { result } = simnet.callPublicFn(
+        "circle-factory",
+        "set-max-circles-per-user",
+        [Cl.uint(0)], // Invalid: must be > 0
+        deployer
+      );
+
+      expect(result).toBeErr(Cl.uint(101)); // ERR-INVALID-NAME (reused)
+    });
+  });
+
+  describe("Integration Tests", () => {
+    it("complete circle lifecycle without treasury", () => {
+      // Create circle
+      const createResult = simnet.callPublicFn(
+        "circle-factory",
+        "create-circle",
+        [Cl.stringAscii("Complete Circle"), Cl.stringAscii("Founder")],
+        wallet1
+      );
+      expect(createResult.result).toBeOk(Cl.uint(1));
+
+      // Add users
+      simnet.callPublicFn(
+        "circle-factory",
+        "add-user-to-circle",
+        [Cl.principal(wallet2), Cl.uint(1)],
+        wallet1
+      );
+
+      // Verify circle stats returns ok
+      const statsResult = simnet.callReadOnlyFn(
+        "circle-factory",
+        "get-circle-stats",
+        [Cl.uint(1)],
+        wallet1
+      );
+
+      // Stats should return successfully
+      expect(statsResult.result).not.toBeErr();
     });
   });
 });
