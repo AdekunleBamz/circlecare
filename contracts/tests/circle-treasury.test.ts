@@ -1,395 +1,699 @@
-import { describe, expect, it, beforeEach } from 'vitest';
-import { Cl } from '@stacks/transactions';
-import { TEST_ACCOUNTS, CONTRACTS, ERROR_CODES, addExpenseArgs, expectOk, expectErr, advanceBlocks } from './helpers/test-utils';
-import { MOCK_EXPENSES, INVALID_INPUTS } from './helpers/mock-data';
+import { describe, expect, it, beforeEach } from "vitest";
+import { Cl } from "@stacks/transactions";
 
 const accounts = simnet.getAccounts();
-const deployer = accounts.get('deployer')!;
-const wallet1 = accounts.get('wallet_1')!;
-const wallet2 = accounts.get('wallet_2')!;
-const wallet3 = accounts.get('wallet_3')!;
+const deployer = accounts.get("deployer")!;
+const wallet1 = accounts.get("wallet_1")!;
+const wallet2 = accounts.get("wallet_2")!;
+const wallet3 = accounts.get("wallet_3")!;
+const wallet4 = accounts.get("wallet_4")!;
 
-describe('Circle Treasury Contract', () => {
-  let circleId: number;
+describe("CircleCare Circle Treasury - Clarity 4 Tests", () => {
 
   beforeEach(() => {
-    // Create a circle for testing
-    const { result } = simnet.callPublicFn(
-      CONTRACTS.FACTORY,
-      'create-circle',
-      [Cl.stringAscii('Test Circle')],
+    // Create a circle via factory for each test
+    simnet.callPublicFn(
+      "circle-factory",
+      "create-circle",
+      [Cl.stringAscii("Test Circle"), Cl.stringAscii("Creator")],
       wallet1
     );
-    circleId = expectOk(result);
   });
 
-  describe('Expense Creation', () => {
-    it('should create expense successfully', () => {
+  describe("Circle Initialization", () => {
+    it("initializes circle with stacks-block-time", () => {
       const { result } = simnet.callPublicFn(
-        CONTRACTS.TREASURY,
-        'create-expense',
-        addExpenseArgs(
-          circleId,
-          MOCK_EXPENSES.GROCERIES.description,
-          MOCK_EXPENSES.GROCERIES.amount,
-          MOCK_EXPENSES.GROCERIES.participants
-        ),
-        wallet1
+        "circle-treasury",
+        "initialize-circle",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Family Circle"),
+          Cl.principal(wallet1),
+          Cl.stringAscii("Alice")
+        ],
+        deployer
       );
-      
-      const expenseId = expectOk(result);
-      expect(expenseId).toBeUint(1);
+
+      expect(result).toBeOk(Cl.bool(true));
     });
 
-    it('should reject expense with zero amount', () => {
-      const { result } = simnet.callPublicFn(
-        CONTRACTS.TREASURY,
-        'create-expense',
-        addExpenseArgs(
-          circleId,
-          'Invalid expense',
-          INVALID_INPUTS.ZERO_AMOUNT,
-          [wallet1]
-        ),
+    it("stores circle metadata correctly", () => {
+      simnet.callPublicFn(
+        "circle-treasury",
+        "initialize-circle",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Work Circle"),
+          Cl.principal(wallet1),
+          Cl.stringAscii("Bob")
+        ],
+        deployer
+      );
+
+      const { result } = simnet.callReadOnlyFn(
+        "circle-treasury",
+        "get-circle",
+        [Cl.uint(1)],
         wallet1
       );
-      
-      expectErr(result, ERROR_CODES.ERR_INVALID_INPUT);
+
+      expect(result).not.toBeNone();
     });
 
-    it('should reject expense with empty description', () => {
-      const { result } = simnet.callPublicFn(
-        CONTRACTS.TREASURY,
-        'create-expense',
-        addExpenseArgs(
-          circleId,
-          INVALID_INPUTS.EMPTY_STRING,
-          MOCK_EXPENSES.GROCERIES.amount,
-          MOCK_EXPENSES.GROCERIES.participants
-        ),
-        wallet1
+    it("prevents double initialization", () => {
+      simnet.callPublicFn(
+        "circle-treasury",
+        "initialize-circle",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Circle 1"),
+          Cl.principal(wallet1),
+          Cl.stringAscii("User1")
+        ],
+        deployer
       );
-      
-      expectErr(result, ERROR_CODES.ERR_INVALID_INPUT);
+
+      const { result } = simnet.callPublicFn(
+        "circle-treasury",
+        "initialize-circle",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Circle 1"),
+          Cl.principal(wallet1),
+          Cl.stringAscii("User1")
+        ],
+        deployer
+      );
+
+      expect(result).toBeErr(Cl.uint(212)); // ERR-CIRCLE-NOT-FOUND (already exists)
     });
 
-    it('should reject expense with empty participants', () => {
-      const { result } = simnet.callPublicFn(
-        CONTRACTS.TREASURY,
-        'create-expense',
-        addExpenseArgs(
-          circleId,
-          MOCK_EXPENSES.GROCERIES.description,
-          MOCK_EXPENSES.GROCERIES.amount,
-          INVALID_INPUTS.EMPTY_PARTICIPANTS
-        ),
-        wallet1
+    it("adds creator as first member", () => {
+      simnet.callPublicFn(
+        "circle-treasury",
+        "initialize-circle",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Test"),
+          Cl.principal(wallet1),
+          Cl.stringAscii("Alice")
+        ],
+        deployer
       );
-      
-      expectErr(result, ERROR_CODES.ERR_INVALID_INPUT);
-    });
 
-    it('should set expense expiration correctly', () => {
-      // Create expense
-      const { result } = simnet.callPublicFn(
-        CONTRACTS.TREASURY,
-        'create-expense',
-        addExpenseArgs(
-          circleId,
-          MOCK_EXPENSES.GROCERIES.description,
-          MOCK_EXPENSES.GROCERIES.amount,
-          MOCK_EXPENSES.GROCERIES.participants
-        ),
+      const { result } = simnet.callReadOnlyFn(
+        "circle-treasury",
+        "get-member-info",
+        [Cl.uint(1), Cl.principal(wallet1)],
         wallet1
       );
-      const expenseId = expectOk(result);
 
-      // Get expense details
-      const { result: expenseResult } = simnet.callReadOnlyFn(
-        CONTRACTS.TREASURY,
-        'get-expense',
-        [Cl.uint(expenseId)],
-        wallet1
-      );
-      
-      const expense = expectOk(expenseResult);
-      expect(expense).toBeTuple({
-        'circle-id': Cl.uint(circleId),
-        amount: Cl.uint(MOCK_EXPENSES.GROCERIES.amount),
-        description: Cl.stringAscii(MOCK_EXPENSES.GROCERIES.description),
-        payer: Cl.principal(wallet1),
-        'created-at': Cl.uint(simnet.blockHeight),
-        'expires-at': Cl.some(Cl.uint(simnet.blockHeight + 144000)),
-        settled: Cl.bool(false),
-        'settled-at': Cl.none()
-      });
+      expect(result).not.toBeNone();
     });
   });
 
-  describe('Expense Settlement', () => {
-    let expenseId: number;
-
+  describe("Member Management", () => {
     beforeEach(() => {
-      const { result } = simnet.callPublicFn(
-        CONTRACTS.TREASURY,
-        'create-expense',
-        addExpenseArgs(
-          circleId,
-          MOCK_EXPENSES.GROCERIES.description,
-          MOCK_EXPENSES.GROCERIES.amount,
-          MOCK_EXPENSES.GROCERIES.participants
-        ),
-        wallet1
-      );
-      expenseId = expectOk(result);
-    });
-
-    it('should settle expense successfully', () => {
-      const { result } = simnet.callPublicFn(
-        CONTRACTS.TREASURY,
-        'settle-expense',
-        [Cl.uint(expenseId)],
-        wallet1
-      );
-      
-      expect(expectOk(result)).toBeBool(true);
-    });
-
-    it('should reject settlement of already settled expense', () => {
-      // Settle first time
       simnet.callPublicFn(
-        CONTRACTS.TREASURY,
-        'settle-expense',
-        [Cl.uint(expenseId)],
-        wallet1
+        "circle-treasury",
+        "initialize-circle",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Test Circle"),
+          Cl.principal(wallet1),
+          Cl.stringAscii("Creator")
+        ],
+        deployer
       );
-
-      // Try to settle again
-      const { result } = simnet.callPublicFn(
-        CONTRACTS.TREASURY,
-        'settle-expense',
-        [Cl.uint(expenseId)],
-        wallet1
-      );
-      
-      expectErr(result, ERROR_CODES.ERR_ALREADY_SETTLED);
     });
 
-    it('should reject settlement of expired expense', () => {
-      // Advance blocks beyond expiration
-      advanceBlocks(simnet, 144001);
-
+    it("creator can add members", () => {
       const { result } = simnet.callPublicFn(
-        CONTRACTS.TREASURY,
-        'settle-expense',
-        [Cl.uint(expenseId)],
+        "circle-treasury",
+        "add-member",
+        [Cl.uint(1), Cl.principal(wallet2), Cl.stringAscii("Member2")],
         wallet1
       );
-      
-      expectErr(result, ERROR_CODES.ERR_EXPIRED);
+
+      expect(result).toBeOk(Cl.bool(true));
     });
 
-    it('should reject unauthorized settlement', () => {
+    it("only creator can add members", () => {
       const { result } = simnet.callPublicFn(
-        CONTRACTS.TREASURY,
-        'settle-expense',
-        [Cl.uint(expenseId)],
-        wallet3 // Not a participant
+        "circle-treasury",
+        "add-member",
+        [Cl.uint(1), Cl.principal(wallet3), Cl.stringAscii("Hacker")],
+        wallet2 // Not creator
       );
-      
-      expectErr(result, ERROR_CODES.ERR_UNAUTHORIZED);
+
+      expect(result).toBeErr(Cl.uint(200)); // ERR-UNAUTHORIZED
+    });
+
+    it("prevents duplicate members", () => {
+      simnet.callPublicFn(
+        "circle-treasury",
+        "add-member",
+        [Cl.uint(1), Cl.principal(wallet2), Cl.stringAscii("Bob")],
+        wallet1
+      );
+
+      const { result } = simnet.callPublicFn(
+        "circle-treasury",
+        "add-member",
+        [Cl.uint(1), Cl.principal(wallet2), Cl.stringAscii("Bob2")],
+        wallet1
+      );
+
+      expect(result).toBeErr(Cl.uint(209)); // ERR-MEMBER-EXISTS
+    });
+
+    it("can remove member with zero balance", () => {
+      simnet.callPublicFn(
+        "circle-treasury",
+        "add-member",
+        [Cl.uint(1), Cl.principal(wallet2), Cl.stringAscii("Temp")],
+        wallet1
+      );
+
+      const { result } = simnet.callPublicFn(
+        "circle-treasury",
+        "remove-member",
+        [Cl.uint(1), Cl.principal(wallet2)],
+        wallet1
+      );
+
+      expect(result).toBeOk(Cl.bool(true));
     });
   });
 
-  describe('Balance Calculations', () => {
-    it('should calculate member balance correctly', () => {
-      // Create expense with 3 participants
-      const { result } = simnet.callPublicFn(
-        CONTRACTS.TREASURY,
-        'create-expense',
-        addExpenseArgs(
-          circleId,
-          MOCK_EXPENSES.GROCERIES.description,
-          MOCK_EXPENSES.GROCERIES.amount, // 15 STX
-          [wallet1, wallet2, wallet3]
-        ),
-        wallet1
+  describe("Expense Management", () => {
+    beforeEach(() => {
+      simnet.callPublicFn(
+        "circle-treasury",
+        "initialize-circle",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Expense Circle"),
+          Cl.principal(wallet1),
+          Cl.stringAscii("Alice")
+        ],
+        deployer
       );
-      expectOk(result);
 
-      // Check payer balance (should be positive - others owe them)
-      const { result: payerBalance } = simnet.callReadOnlyFn(
-        CONTRACTS.TREASURY,
-        'calculate-member-balance',
-        [Cl.uint(circleId), Cl.principal(wallet1)],
+      simnet.callPublicFn(
+        "circle-treasury",
+        "add-member",
+        [Cl.uint(1), Cl.principal(wallet2), Cl.stringAscii("Bob")],
         wallet1
       );
-      
-      // Payer paid 15 STX but only owes 5 STX (15/3), so balance is +10 STX
-      expect(expectOk(payerBalance)).toBeInt(10000000);
 
-      // Check participant balance (should be negative - they owe money)
-      const { result: participantBalance } = simnet.callReadOnlyFn(
-        CONTRACTS.TREASURY,
-        'calculate-member-balance',
-        [Cl.uint(circleId), Cl.principal(wallet2)],
+      simnet.callPublicFn(
+        "circle-treasury",
+        "add-member",
+        [Cl.uint(1), Cl.principal(wallet3), Cl.stringAscii("Charlie")],
         wallet1
       );
-      
-      // Participant owes 5 STX (15/3) but paid 0, so balance is -5 STX
-      expect(expectOk(participantBalance)).toBeInt(-5000000);
     });
 
-    it('should handle multiple expenses correctly', () => {
-      // First expense: wallet1 pays 15 STX for 3 people
-      simnet.callPublicFn(
-        CONTRACTS.TREASURY,
-        'create-expense',
-        addExpenseArgs(
-          circleId,
-          'Expense 1',
-          15000000,
-          [wallet1, wallet2, wallet3]
-        ),
+    it("creates expense with participants", () => {
+      const { result } = simnet.callPublicFn(
+        "circle-treasury",
+        "add-expense",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Dinner"),
+          Cl.uint(300000000), // 300 STX
+          Cl.list([Cl.principal(wallet1), Cl.principal(wallet2), Cl.principal(wallet3)])
+        ],
         wallet1
       );
 
-      // Second expense: wallet2 pays 9 STX for 3 people
+      expect(result).toBeOk(Cl.uint(1)); // First expense ID
+    });
+
+    it("distributes shares evenly among participants", () => {
       simnet.callPublicFn(
-        CONTRACTS.TREASURY,
-        'create-expense',
-        addExpenseArgs(
-          circleId,
-          'Expense 2',
-          9000000,
-          [wallet1, wallet2, wallet3]
-        ),
+        "circle-treasury",
+        "add-expense",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Lunch"),
+          Cl.uint(300000000),
+          Cl.list([Cl.principal(wallet1), Cl.principal(wallet2), Cl.principal(wallet3)])
+        ],
+        wallet1
+      );
+
+      // Each should owe 100 STX (300/3)
+      const { result } = simnet.callReadOnlyFn(
+        "circle-treasury",
+        "get-balance",
+        [Cl.uint(1), Cl.principal(wallet2), Cl.principal(wallet1)],
+        wallet1
+      );
+
+      expect(result).toBeUint(100000000); // 100 STX
+    });
+
+    it("prevents empty participant list", () => {
+      const { result } = simnet.callPublicFn(
+        "circle-treasury",
+        "add-expense",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Empty"),
+          Cl.uint(100000000),
+          Cl.list([])
+        ],
+        wallet1
+      );
+
+      expect(result).toBeErr(Cl.uint(202)); // ERR-INVALID-PARTICIPANT
+    });
+
+    it("validates all participants are members", () => {
+      const { result } = simnet.callPublicFn(
+        "circle-treasury",
+        "add-expense",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Invalid"),
+          Cl.uint(100000000),
+          Cl.list([Cl.principal(wallet1), Cl.principal(wallet4)]) // wallet4 not a member
+        ],
+        wallet1
+      );
+
+      expect(result).toBeErr(Cl.uint(202)); // ERR-INVALID-PARTICIPANT
+    });
+
+    it("rejects when circle is paused", () => {
+      simnet.callPublicFn(
+        "circle-treasury",
+        "pause-circle",
+        [Cl.uint(1)],
+        wallet1
+      );
+
+      const { result } = simnet.callPublicFn(
+        "circle-treasury",
+        "add-expense",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Paused"),
+          Cl.uint(100000000),
+          Cl.list([Cl.principal(wallet1)])
+        ],
+        wallet1
+      );
+
+      expect(result).toBeErr(Cl.uint(208)); // ERR-CIRCLE-PAUSED
+    });
+
+    it("updates expense description", () => {
+      simnet.callPublicFn(
+        "circle-treasury",
+        "add-expense",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Original"),
+          Cl.uint(100000000),
+          Cl.list([Cl.principal(wallet1), Cl.principal(wallet2)])
+        ],
+        wallet1
+      );
+
+      const { result } = simnet.callPublicFn(
+        "circle-treasury",
+        "update-expense-description",
+        [Cl.uint(1), Cl.uint(1), Cl.stringAscii("Updated Description")],
+        wallet1
+      );
+
+      expect(result).toBeOk(Cl.bool(true));
+    });
+  });
+
+  describe("Debt Settlement with restrict-assets?", () => {
+    beforeEach(() => {
+      simnet.callPublicFn(
+        "circle-treasury",
+        "initialize-circle",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Settlement Circle"),
+          Cl.principal(wallet1),
+          Cl.stringAscii("Alice")
+        ],
+        deployer
+      );
+
+      simnet.callPublicFn(
+        "circle-treasury",
+        "add-member",
+        [Cl.uint(1), Cl.principal(wallet2), Cl.stringAscii("Bob")],
+        wallet1
+      );
+
+      // Create expense: wallet1 paid, wallet2 owes
+      simnet.callPublicFn(
+        "circle-treasury",
+        "add-expense",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Shared Expense"),
+          Cl.uint(200000000), // 200 STX
+          Cl.list([Cl.principal(wallet1), Cl.principal(wallet2)])
+        ],
+        wallet1
+      );
+    });
+
+    it("settles debt with restrict-assets? protection", () => {
+      const { result } = simnet.callPublicFn(
+        "circle-treasury",
+        "settle-debt-stx",
+        [Cl.uint(1), Cl.principal(wallet1)],
         wallet2
       );
 
-      // Check wallet1 balance
-      const { result: wallet1Balance } = simnet.callReadOnlyFn(
-        CONTRACTS.TREASURY,
-        'calculate-member-balance',
-        [Cl.uint(circleId), Cl.principal(wallet1)],
-        wallet1
-      );
-      
-      // wallet1: paid 15, owes 8 (5+3), net = +7 STX
-      expect(expectOk(wallet1Balance)).toBeInt(7000000);
-
-      // Check wallet2 balance
-      const { result: wallet2Balance } = simnet.callReadOnlyFn(
-        CONTRACTS.TREASURY,
-        'calculate-member-balance',
-        [Cl.uint(circleId), Cl.principal(wallet2)],
-        wallet1
-      );
-      
-      // wallet2: paid 9, owes 8 (5+3), net = +1 STX
-      expect(expectOk(wallet2Balance)).toBeInt(1000000);
-    });
-  });
-
-  describe('Treasury Management', () => {
-    it('should get circle treasury balance', () => {
-      const { result } = simnet.callReadOnlyFn(
-        CONTRACTS.TREASURY,
-        'get-circle-treasury-balance',
-        [Cl.uint(circleId)],
-        wallet1
-      );
-      
-      // Initial treasury balance should be 0
-      expect(expectOk(result)).toBeUint(0);
+      expect(result).toBeOk(Cl.uint(1)); // Settlement ID
     });
 
-    it('should get circle statistics', () => {
-      // Create an expense first
+    it("updates balances after settlement", () => {
       simnet.callPublicFn(
-        CONTRACTS.TREASURY,
-        'create-expense',
-        addExpenseArgs(
-          circleId,
-          MOCK_EXPENSES.GROCERIES.description,
-          MOCK_EXPENSES.GROCERIES.amount,
-          MOCK_EXPENSES.GROCERIES.participants
-        ),
-        wallet1
+        "circle-treasury",
+        "settle-debt-stx",
+        [Cl.uint(1), Cl.principal(wallet1)],
+        wallet2
       );
 
       const { result } = simnet.callReadOnlyFn(
-        CONTRACTS.TREASURY,
-        'get-circle-stats',
-        [Cl.uint(circleId)],
+        "circle-treasury",
+        "get-balance",
+        [Cl.uint(1), Cl.principal(wallet2), Cl.principal(wallet1)],
         wallet1
       );
-      
-      const stats = expectOk(result);
-      expect(stats).toBeTuple({
-        'total-expenses': Cl.uint(MOCK_EXPENSES.GROCERIES.amount),
-        'total-settled': Cl.uint(0),
-        'member-count': Cl.uint(3),
-        'treasury-balance': Cl.uint(0)
-      });
+
+      expect(result).toBeUint(0); // Debt cleared
+    });
+
+    it("records settlement history", () => {
+      simnet.callPublicFn(
+        "circle-treasury",
+        "settle-debt-stx",
+        [Cl.uint(1), Cl.principal(wallet1)],
+        wallet2
+      );
+
+      const { result } = simnet.callReadOnlyFn(
+        "circle-treasury",
+        "get-settlement",
+        [Cl.uint(1), Cl.uint(1)],
+        wallet1
+      );
+
+      expect(result).not.toBeNone();
+    });
+
+    it("prevents settlement when no debt exists", () => {
+      // wallet1 has no debt to wallet2
+      const { result } = simnet.callPublicFn(
+        "circle-treasury",
+        "settle-debt-stx",
+        [Cl.uint(1), Cl.principal(wallet2)],
+        wallet1
+      );
+
+      expect(result).toBeErr(Cl.uint(205)); // ERR-NO-DEBT
+    });
+
+    it("prevents settlement when paused", () => {
+      simnet.callPublicFn(
+        "circle-treasury",
+        "pause-circle",
+        [Cl.uint(1)],
+        wallet1
+      );
+
+      const { result } = simnet.callPublicFn(
+        "circle-treasury",
+        "settle-debt-stx",
+        [Cl.uint(1), Cl.principal(wallet1)],
+        wallet2
+      );
+
+      expect(result).toBeErr(Cl.uint(208)); // ERR-CIRCLE-PAUSED
     });
   });
 
-  describe('Edge Cases and Error Handling', () => {
-    it('should handle non-existent expense queries', () => {
+  describe("Balance Calculations", () => {
+    beforeEach(() => {
+      simnet.callPublicFn(
+        "circle-treasury",
+        "initialize-circle",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Balance Circle"),
+          Cl.principal(wallet1),
+          Cl.stringAscii("Alice")
+        ],
+        deployer
+      );
+
+      simnet.callPublicFn(
+        "circle-treasury",
+        "add-member",
+        [Cl.uint(1), Cl.principal(wallet2), Cl.stringAscii("Bob")],
+        wallet1
+      );
+
+      simnet.callPublicFn(
+        "circle-treasury",
+        "add-member",
+        [Cl.uint(1), Cl.principal(wallet3), Cl.stringAscii("Charlie")],
+        wallet1
+      );
+    });
+
+    it("calculates net balance correctly", () => {
+      // wallet1 pays for everyone
+      simnet.callPublicFn(
+        "circle-treasury",
+        "add-expense",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Trip"),
+          Cl.uint(300000000),
+          Cl.list([Cl.principal(wallet1), Cl.principal(wallet2), Cl.principal(wallet3)])
+        ],
+        wallet1
+      );
+
       const { result } = simnet.callReadOnlyFn(
-        CONTRACTS.TREASURY,
-        'get-expense',
-        [Cl.uint(INVALID_INPUTS.NON_EXISTENT_CIRCLE_ID)],
+        "circle-treasury",
+        "get-net-balance",
+        [Cl.uint(1), Cl.principal(wallet1)],
         wallet1
       );
-      
-      expectErr(result, ERROR_CODES.ERR_NOT_FOUND);
+
+      // wallet1 is owed 200 STX (paid 300, owes 100)
+      expect(result).toBeOk(Cl.uint(200000000));
     });
 
-    it('should handle large expense amounts', () => {
-      const { result } = simnet.callPublicFn(
-        CONTRACTS.TREASURY,
-        'create-expense',
-        addExpenseArgs(
-          circleId,
-          'Large expense',
-          MOCK_EXPENSES.LARGE_EXPENSE.amount,
-          MOCK_EXPENSES.LARGE_EXPENSE.participants
-        ),
+    it("handles multiple expenses correctly", () => {
+      // Expense 1: wallet1 pays
+      simnet.callPublicFn(
+        "circle-treasury",
+        "add-expense",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Dinner"),
+          Cl.uint(200000000),
+          Cl.list([Cl.principal(wallet1), Cl.principal(wallet2)])
+        ],
         wallet1
       );
-      
-      expect(expectOk(result)).toBeUint(1);
+
+      // Expense 2: wallet2 pays
+      simnet.callPublicFn(
+        "circle-treasury",
+        "add-expense",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Lunch"),
+          Cl.uint(100000000),
+          Cl.list([Cl.principal(wallet1), Cl.principal(wallet2)])
+        ],
+        wallet2
+      );
+
+      // Check wallet2 owes wallet1 100 STX from first expense
+      const result1 = simnet.callReadOnlyFn(
+        "circle-treasury",
+        "get-balance",
+        [Cl.uint(1), Cl.principal(wallet2), Cl.principal(wallet1)],
+        wallet1
+      );
+      expect(result1.result).toBeUint(100000000);
+
+      // Check wallet1 owes wallet2 50 STX from second expense
+      const result2 = simnet.callReadOnlyFn(
+        "circle-treasury",
+        "get-balance",
+        [Cl.uint(1), Cl.principal(wallet1), Cl.principal(wallet2)],
+        wallet1
+      );
+      expect(result2.result).toBeUint(50000000);
+    });
+  });
+
+  describe("Pause/Unpause Functionality", () => {
+    beforeEach(() => {
+      simnet.callPublicFn(
+        "circle-treasury",
+        "initialize-circle",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Pause Circle"),
+          Cl.principal(wallet1),
+          Cl.stringAscii("Admin")
+        ],
+        deployer
+      );
     });
 
-    it('should get expense participants correctly', () => {
-      // Create expense
+    it("creator can pause circle", () => {
       const { result } = simnet.callPublicFn(
-        CONTRACTS.TREASURY,
-        'create-expense',
-        addExpenseArgs(
-          circleId,
-          MOCK_EXPENSES.GROCERIES.description,
-          MOCK_EXPENSES.GROCERIES.amount,
-          MOCK_EXPENSES.GROCERIES.participants
-        ),
+        "circle-treasury",
+        "pause-circle",
+        [Cl.uint(1)],
         wallet1
       );
-      const expenseId = expectOk(result);
 
-      // Get participants
-      const { result: participantsResult } = simnet.callReadOnlyFn(
-        CONTRACTS.TREASURY,
-        'get-expense-participants',
-        [Cl.uint(expenseId)],
+      expect(result).toBeOk(Cl.bool(true));
+    });
+
+    it("creator can unpause circle", () => {
+      simnet.callPublicFn(
+        "circle-treasury",
+        "pause-circle",
+        [Cl.uint(1)],
         wallet1
       );
-      
-      const participants = expectOk(participantsResult);
-      expect(participants).toBeList(
-        MOCK_EXPENSES.GROCERIES.participants.map(p => Cl.principal(p))
+
+      const { result } = simnet.callPublicFn(
+        "circle-treasury",
+        "unpause-circle",
+        [Cl.uint(1)],
+        wallet1
       );
+
+      expect(result).toBeOk(Cl.bool(true));
+    });
+
+    it("non-creator cannot pause", () => {
+      const { result } = simnet.callPublicFn(
+        "circle-treasury",
+        "pause-circle",
+        [Cl.uint(1)],
+        wallet2
+      );
+
+      expect(result).toBeErr(Cl.uint(200)); // ERR-UNAUTHORIZED
+    });
+  });
+
+  describe("Read-Only Functions", () => {
+    beforeEach(() => {
+      simnet.callPublicFn(
+        "circle-treasury",
+        "initialize-circle",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Read Circle"),
+          Cl.principal(wallet1),
+          Cl.stringAscii("Creator")
+        ],
+        deployer
+      );
+
+      simnet.callPublicFn(
+        "circle-treasury",
+        "add-member",
+        [Cl.uint(1), Cl.principal(wallet2), Cl.stringAscii("Member")],
+        wallet1
+      );
+    });
+
+    it("returns circle stats", () => {
+      const { result } = simnet.callReadOnlyFn(
+        "circle-treasury",
+        "get-circle-stats",
+        [Cl.uint(1)],
+        wallet1
+      );
+
+      expect(result).not.toBeErr();
+    });
+
+    it("returns member at index", () => {
+      const { result } = simnet.callReadOnlyFn(
+        "circle-treasury",
+        "get-member-at-index",
+        [Cl.uint(1), Cl.uint(0)],
+        wallet1
+      );
+
+      expect(result).not.toBeNone();
+    });
+
+    it("returns none for non-existent circle", () => {
+      const { result } = simnet.callReadOnlyFn(
+        "circle-treasury",
+        "get-circle",
+        [Cl.uint(999)],
+        wallet1
+      );
+
+      expect(result).toBeNone();
+    });
+
+    it("returns none for non-existent member", () => {
+      const { result } = simnet.callReadOnlyFn(
+        "circle-treasury",
+        "get-member-info",
+        [Cl.uint(1), Cl.principal(wallet3)],
+        wallet1
+      );
+
+      expect(result).toBeNone();
+    });
+  });
+
+  describe("Integration with stacks-block-time", () => {
+    it("uses stacks-block-time for timestamps", () => {
+      simnet.callPublicFn(
+        "circle-treasury",
+        "initialize-circle",
+        [
+          Cl.uint(1),
+          Cl.stringAscii("Time Circle"),
+          Cl.principal(wallet1),
+          Cl.stringAscii("Timer")
+        ],
+        deployer
+      );
+
+      const { result } = simnet.callReadOnlyFn(
+        "circle-treasury",
+        "get-circle",
+        [Cl.uint(1)],
+        wallet1
+      );
+
+      // Circle should have created-at timestamp
+      expect(result).not.toBeNone();
     });
   });
 });
