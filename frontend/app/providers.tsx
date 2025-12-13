@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { StacksProvider } from '@/lib/StacksProvider'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { ToastContainer } from '@/components/ui/Toast'
+import { NetworkStatus } from '@/components/NetworkStatus'
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient({
@@ -26,6 +27,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <StacksProvider>
+          <NetworkStatus />
           {children}
           <ToastContainer />
         </StacksProvider>
