@@ -47,4 +47,6 @@ Thumbs.db
 
 # Documentation (keep local only)
 docs/*.md
+!.github/
 *.md
+!.github/
