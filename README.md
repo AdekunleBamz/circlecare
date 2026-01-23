@@ -254,6 +254,10 @@ For quick contributions:
 - [ ] Analytics dashboard
 - [ ] API for third-party integrations
 
+## Code of Conduct
+
+We follow a code of conduct to ensure a welcoming environment for all contributors.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details
