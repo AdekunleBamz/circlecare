@@ -112,10 +112,9 @@
       creator: creator,
       created-at: stacks-block-time,
       paused: false,
-      next-expense-id: u1,
-      next-settlement-id: u1,
-      member-count: u1
-    })
+      next-expense-id: u1, ;; Start IDs at 1
+      next-settlement-id: u1, ;; Start IDs at 1
+      member-count: u1 ;; Creator is first member    })
 
     ;; Add creator as first member
     (map-set members {circle-id: circle-id, member: creator} {
