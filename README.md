@@ -5,6 +5,7 @@
 [![Clarity Version](https://img.shields.io/badge/Clarity-4.0-blue.svg)](https://docs.stacks.co/whats-new/clarity-4-is-now-live)
 [![Stacks](https://img.shields.io/badge/Built%20on-Stacks-5546FF.svg)](https://www.stacks.co/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![CI](https://github.com/ThinkLikeAFounder/circlecare/actions/workflows/main.yml/badge.svg)](https://github.com/ThinkLikeAFounder/circlecare/actions/workflows/main.yml)
 
 ## Overview
 
